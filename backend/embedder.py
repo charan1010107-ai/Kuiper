@@ -21,16 +21,20 @@ else:
     CACHE_FILE = os.environ.get("CACHE_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'embedding_cache.json')
 
 class Embedder:
-    def __init__(self):
-        self.model = None
-        if HAS_SENTENCE_TRANSFORMERS and SentenceTransformer is not None:
-            try:
-                print("⚙️  Loading embedding model...")
-                self.model = SentenceTransformer(MODEL_NAME)
-                print("✅ Embedder model ready.")
-            except Exception as e:
-                print(f"⚠️ Could not initialize SentenceTransformer: {e}")
-                self.model = None
+    def __init__(self, model=None):
+        if model is not None:
+            self.model = model
+            print("✅ Embedder using shared embedding model.")
+        else:
+            self.model = None
+            if HAS_SENTENCE_TRANSFORMERS and SentenceTransformer is not None:
+                try:
+                    print("⚙️  Loading embedding model...")
+                    self.model = SentenceTransformer(MODEL_NAME)
+                    print("✅ Embedder model ready.")
+                except Exception as e:
+                    print(f"⚠️ Could not initialize SentenceTransformer: {e}")
+                    self.model = None
         self.cache = self._load_cache()
 
     # ── PERSISTENT CACHE ───────────────────────────────────────

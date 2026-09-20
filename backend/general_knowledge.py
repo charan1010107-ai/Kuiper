@@ -1,7 +1,13 @@
 import re
 import threading
 import wikipediaapi
-from ddgs import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
 
 # ── SETUP ──────────────────────────────────────────────────────
 wiki = wikipediaapi.Wikipedia(

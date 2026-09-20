@@ -18,8 +18,15 @@ from dynamic_alpha import get_alpha
 from llm_client import INBUILT_GROQ_KEY, INBUILT_GEMINI_KEY
 
 # ── APP ────────────────────────────────────────────────────────
-app    = FastAPI(title="Kuiper Intelligent Routing API", version="2.0.0")
-router = KuiperRouter()
+app = FastAPI(title="Kuiper Intelligent Routing API", version="2.0.0")
+
+try:
+    router = KuiperRouter()
+except Exception as e:
+    print(f"⚠️ Warning initializing router on boot: {e}")
+    import traceback
+    traceback.print_exc()
+    router = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,6 +125,7 @@ def health():
     return {
         "status": "healthy",
         "pipeline": "7-layer",
+        "router_ready": router is not None,
         "version": "2.0.0"
     }
 
@@ -139,8 +147,15 @@ def get_config():
 @app.post("/query", response_model=QueryResponse)
 @app.post("/api/query", response_model=QueryResponse)
 def handle_query(req: QueryRequest):
+    global router
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    if router is None:
+        try:
+            router = KuiperRouter()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Router initialization error: {e}")
 
     start = time.time()
     result = router.route(req.query, provider=req.provider or "auto", api_key=req.api_key)

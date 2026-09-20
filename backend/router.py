@@ -676,6 +676,11 @@ class KuiperRouter:
         
         if HAS_HEAVY_ML and SentenceTransformer is not None:
             try:
+                try:
+                    import torch
+                    torch.set_num_threads(1)
+                except Exception:
+                    pass
                 self.embed_model = SentenceTransformer('all-MiniLM-L6-v2')
                 print("  ✅ Layer 3 & 4 Embedding Model ready")
                 self.ensemble = EnsembleModel(self.embed_model)
@@ -691,7 +696,7 @@ class KuiperRouter:
         self._seed_cache()
         print("  ✅ Layer 2 MinHash LSH Cache ready")
         
-        self.embedder = Embedder()
+        self.embedder = Embedder(model=self.embed_model)
         self.labeled_embeddings = self._build_labeled_embeddings() if (self.embedder and self.embedder.model) else []
         print("  ✅ Layer 3 Embedder ready")
         
