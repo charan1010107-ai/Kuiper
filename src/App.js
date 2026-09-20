@@ -455,42 +455,43 @@ export default function App() {
   }, [history]);
 
   const checkHealth = React.useCallback(async () => {
-    let target = apiUrl;
-    if (typeof window !== "undefined") {
-      const host = window.location.hostname;
-      if ((host === "localhost" || host === "127.0.0.1") && (!target || !target.trim())) {
-        target = "http://127.0.0.1:8000";
-        setApiUrl("http://127.0.0.1:8000");
-      }
+    const candidates = [];
+    if (apiUrl !== null && apiUrl !== undefined && apiUrl !== "") {
+      candidates.push(apiUrl.trim().replace(/\/$/, ""));
     }
-    const cleanUrl = target ? target.trim().replace(/\/$/, "") : "";
-    const statsEndpoint = cleanUrl ? `${cleanUrl}/stats` : "/stats";
-    try {
-      const res = await axios.get(statsEndpoint, { timeout: 3500 });
-      setStats(res.data);
-      setBackendOnline(true);
-      return;
-    } catch {
-      // Auto fallback probe to alternative local host ONLY when testing locally
-      if (cleanUrl.includes("127.0.0.1:8000")) {
-        try {
-          const res = await axios.get("http://localhost:8000/stats", { timeout: 1500 });
-          setStats(res.data);
-          setApiUrl("http://localhost:8000");
-          setBackendOnline(true);
-          return;
-        } catch {}
-      } else if (cleanUrl.includes("localhost:8000")) {
-        try {
-          const res = await axios.get("http://127.0.0.1:8000/stats", { timeout: 1500 });
-          setStats(res.data);
-          setApiUrl("http://127.0.0.1:8000");
-          setBackendOnline(true);
-          return;
-        } catch {}
-      }
-      setBackendOnline(false);
+    if (process.env.REACT_APP_API_URL) {
+      candidates.push(process.env.REACT_APP_API_URL.trim().replace(/\/$/, ""));
     }
+    
+    // Check if on localhost / local development
+    const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    if (isLocal) {
+      candidates.unshift("http://127.0.0.1:8000");
+      candidates.push("http://localhost:8000");
+    } else {
+      // On cloud (Vercel), same-origin relative endpoint is primary
+      candidates.unshift("");
+    }
+    
+    // Deduplicate preserving preference order
+    const uniqueCandidates = [...new Set(candidates)];
+    
+    for (const cand of uniqueCandidates) {
+      const cleanCand = cand.replace(/\/$/, "");
+      const statsEndpoint = cleanCand ? `${cleanCand}/stats` : "/stats";
+      try {
+        const res = await axios.get(statsEndpoint, { timeout: 2000 });
+        if (res.data && (res.data.total_queries !== undefined || res.data.alpha !== undefined)) {
+          setStats(res.data);
+          setBackendOnline(true);
+          if (apiUrl !== cleanCand) {
+            setApiUrl(cleanCand);
+          }
+          return;
+        }
+      } catch {}
+    }
+    setBackendOnline(false);
   }, [apiUrl]);
 
   useEffect(() => {
@@ -517,11 +518,9 @@ export default function App() {
     try {
       // 1. Try Backend API first
       let target = apiUrl;
-      if (typeof window !== "undefined") {
-        const host = window.location.hostname;
-        if ((host === "localhost" || host === "127.0.0.1") && (!target || !target.trim())) {
-          target = "http://127.0.0.1:8000";
-        }
+      const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+      if (isLocal && (!target || !target.trim())) {
+        target = "http://127.0.0.1:8000";
       }
       const cleanUrl = target ? target.trim().replace(/\/$/, "") : "";
       const queryEndpoint = cleanUrl ? `${cleanUrl}/query` : "/query";
@@ -537,6 +536,22 @@ export default function App() {
       setBackendOnline(true);
       checkHealth();
     } catch (err) {
+      // 1B. Automatic retry on fallback endpoint before resorting to client surrogate
+      try {
+        const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+        const altEndpoint = isLocal ? "http://127.0.0.1:8000/query" : "/query";
+        const resAlt = await axios.post(altEndpoint, {
+          query: q,
+          provider,
+          api_key: apiKey || null,
+        }, { timeout: 10000 });
+
+        setResult(resAlt.data);
+        setActiveLayer(resAlt.data.layer);
+        setHistory(prev => [{ ...resAlt.data, query: q }, ...prev.slice(0, 49)]);
+        setBackendOnline(true);
+        return;
+      } catch {}
       // 2. Intelligent Client-Side Cascade Surrogate
       const normalized = q.toLowerCase();
       let fallbackData = null;
