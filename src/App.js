@@ -3,25 +3,27 @@ import axios from "axios";
 
 const getInitialApiUrl = () => {
   if (typeof window !== "undefined") {
-    const saved = localStorage.getItem("tokenwise_api_url");
-    if (saved) return saved;
-  }
-  if (process.env.REACT_APP_API_URL) {
-    return process.env.REACT_APP_API_URL;
-  }
-  if (typeof window !== "undefined" && window.location.hostname) {
     const host = window.location.hostname;
-    if (host.includes("vercel.app")) {
+    // When running locally on localhost/127.0.0.1, always default to http://127.0.0.1:8000
+    if (host === "localhost" || host === "127.0.0.1") {
+      const saved = localStorage.getItem("tokenwise_api_url");
+      if (saved && saved.trim() && saved.startsWith("http")) return saved.trim();
+      return "http://127.0.0.1:8000";
+    }
+    
+    // When deployed on Vercel, default to same-origin relative path ""
+    if (host && host.includes("vercel.app")) {
+      const saved = localStorage.getItem("tokenwise_api_url");
+      if (saved && saved.trim() && saved.startsWith("http")) return saved.trim();
       return "";
     }
-    if (
-      host !== "localhost" &&
-      host !== "127.0.0.1" &&
-      !host.includes("github.io") &&
-      !host.includes("railway.app")
-    ) {
-      return `http://${host}:8000`;
-    }
+    
+    const saved = localStorage.getItem("tokenwise_api_url");
+    if (saved && saved.trim()) return saved.trim();
+  }
+  
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
   }
   return "http://127.0.0.1:8000";
 };
@@ -453,11 +455,15 @@ export default function App() {
   }, [history]);
 
   const checkHealth = React.useCallback(async () => {
-    if (apiUrl === null || apiUrl === undefined) {
-      setBackendOnline(false);
-      return;
+    let target = apiUrl;
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      if ((host === "localhost" || host === "127.0.0.1") && (!target || !target.trim())) {
+        target = "http://127.0.0.1:8000";
+        setApiUrl("http://127.0.0.1:8000");
+      }
     }
-    const cleanUrl = apiUrl.trim().replace(/\/$/, "");
+    const cleanUrl = target ? target.trim().replace(/\/$/, "") : "";
     const statsEndpoint = cleanUrl ? `${cleanUrl}/stats` : "/stats";
     try {
       const res = await axios.get(statsEndpoint, { timeout: 3500 });
@@ -510,7 +516,14 @@ export default function App() {
 
     try {
       // 1. Try Backend API first
-      const cleanUrl = apiUrl ? apiUrl.trim().replace(/\/$/, "") : "";
+      let target = apiUrl;
+      if (typeof window !== "undefined") {
+        const host = window.location.hostname;
+        if ((host === "localhost" || host === "127.0.0.1") && (!target || !target.trim())) {
+          target = "http://127.0.0.1:8000";
+        }
+      }
+      const cleanUrl = target ? target.trim().replace(/\/$/, "") : "";
       const queryEndpoint = cleanUrl ? `${cleanUrl}/query` : "/query";
       const res = await axios.post(queryEndpoint, {
         query: q,
