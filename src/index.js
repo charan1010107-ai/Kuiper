@@ -4,6 +4,34 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// Ignore third-party browser extension errors (e.g. MetaMask inpage.js)
+if (typeof window !== "undefined") {
+  const isExtensionError = (e) => {
+    const msg = e?.message || e?.reason?.message || String(e || "");
+    const src = e?.filename || e?.reason?.stack || "";
+    return (
+      msg.includes("MetaMask") ||
+      src.includes("chrome-extension://") ||
+      src.includes("moz-extension://") ||
+      src.includes("inpage.js")
+    );
+  };
+
+  window.addEventListener("error", (event) => {
+    if (isExtensionError(event)) {
+      event.stopImmediatePropagation();
+      event.preventDefault();
+    }
+  }, true);
+
+  window.addEventListener("unhandledrejection", (event) => {
+    if (isExtensionError(event)) {
+      event.stopImmediatePropagation();
+      event.preventDefault();
+    }
+  }, true);
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
