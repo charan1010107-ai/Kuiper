@@ -11,11 +11,13 @@ const getInitialApiUrl = () => {
   }
   if (typeof window !== "undefined" && window.location.hostname) {
     const host = window.location.hostname;
+    if (host.includes("vercel.app")) {
+      return "";
+    }
     if (
       host !== "localhost" &&
       host !== "127.0.0.1" &&
       !host.includes("github.io") &&
-      !host.includes("vercel.app") &&
       !host.includes("railway.app")
     ) {
       return `http://${host}:8000`;
@@ -451,13 +453,14 @@ export default function App() {
   }, [history]);
 
   const checkHealth = React.useCallback(async () => {
-    if (!apiUrl) {
+    if (apiUrl === null || apiUrl === undefined) {
       setBackendOnline(false);
       return;
     }
     const cleanUrl = apiUrl.trim().replace(/\/$/, "");
+    const statsEndpoint = cleanUrl ? `${cleanUrl}/stats` : "/stats";
     try {
-      const res = await axios.get(`${cleanUrl}/stats`, { timeout: 3500 });
+      const res = await axios.get(statsEndpoint, { timeout: 3500 });
       setStats(res.data);
       setBackendOnline(true);
       return;
@@ -507,8 +510,9 @@ export default function App() {
 
     try {
       // 1. Try Backend API first
-      const cleanUrl = apiUrl.trim().replace(/\/$/, "");
-      const res = await axios.post(`${cleanUrl}/query`, {
+      const cleanUrl = apiUrl ? apiUrl.trim().replace(/\/$/, "") : "";
+      const queryEndpoint = cleanUrl ? `${cleanUrl}/query` : "/query";
+      const res = await axios.post(queryEndpoint, {
         query: q,
         provider,
         api_key: apiKey || null,

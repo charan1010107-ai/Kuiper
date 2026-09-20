@@ -29,7 +29,10 @@ app.add_middleware(
 )
 
 # ── TRACES ─────────────────────────────────────────────────────
-TRACES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "traces.jsonl")
+if os.environ.get("VERCEL"):
+    TRACES_FILE = "/tmp/traces.jsonl"
+else:
+    TRACES_FILE = os.environ.get("TRACES_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "traces.jsonl")
 
 def save_trace(query, result, latency_ms):
     trace = {
@@ -98,6 +101,7 @@ GPT4_BASELINE_COST = 0.0020
 
 # ── ENDPOINTS ──────────────────────────────────────────────────
 @app.get("/")
+@app.get("/api")
 def root():
     return {
         "message": "Kuiper 7-Layer Intelligent Router API is active 🚀",
@@ -109,6 +113,7 @@ def root():
     }
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {
         "status": "healthy",
@@ -117,6 +122,7 @@ def health():
     }
 
 @app.get("/config")
+@app.get("/api/config")
 def get_config():
     return {
         "inbuilt_groq": bool(INBUILT_GROQ_KEY),
@@ -131,6 +137,7 @@ def get_config():
     }
 
 @app.post("/query", response_model=QueryResponse)
+@app.post("/api/query", response_model=QueryResponse)
 def handle_query(req: QueryRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
@@ -174,6 +181,7 @@ def handle_query(req: QueryRequest):
     )
 
 @app.get("/stats")
+@app.get("/api/stats")
 def get_stats():
     total = stats["total"] or 1
     alpha_info = get_alpha()
@@ -193,11 +201,13 @@ def get_stats():
     }
 
 @app.get("/traces")
+@app.get("/api/traces")
 def get_traces(limit: int = 30):
     traces = load_traces()
     return {"traces": traces[-limit:], "total": len(traces)}
 
 @app.delete("/traces")
+@app.delete("/api/traces")
 def clear_traces():
     if os.path.exists(TRACES_FILE):
         try:

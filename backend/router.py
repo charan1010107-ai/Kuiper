@@ -5,13 +5,19 @@ import time
 import warnings
 warnings.filterwarnings("ignore")
 
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import LabelEncoder
-from collections import Counter
-import lightgbm as lgb
-from sentence_transformers import SentenceTransformer
+try:
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.preprocessing import LabelEncoder
+    from collections import Counter
+    import lightgbm as lgb
+    from sentence_transformers import SentenceTransformer
+    HAS_HEAVY_ML = True
+except ImportError:
+    HAS_HEAVY_ML = False
+    np = None
+    SentenceTransformer = None
 
 import query_handler
 import general_knowledge
@@ -665,21 +671,31 @@ class EnsembleModel:
 class KuiperRouter:
     def __init__(self):
         print("🚀 Initialising Kuiper Router Pipeline...")
-        self.embed_model = SentenceTransformer('all-MiniLM-L6-v2')
-        print("  ✅ Layer 3 & 4 Embedding Model ready")
+        self.embed_model = None
+        self.ensemble = None
         
-        self.ensemble = EnsembleModel(self.embed_model)
-        print("  ✅ Layer 4 Ensemble (LogReg + MLP + LightGBM) ready")
+        if HAS_HEAVY_ML and SentenceTransformer is not None:
+            try:
+                self.embed_model = SentenceTransformer('all-MiniLM-L6-v2')
+                print("  ✅ Layer 3 & 4 Embedding Model ready")
+                self.ensemble = EnsembleModel(self.embed_model)
+                print("  ✅ Layer 4 Ensemble (LogReg + MLP + LightGBM) ready")
+            except Exception as e:
+                print(f"  ⚠️ Skipping heavy ML initialization: {e}")
+                self.embed_model = None
+                self.ensemble = None
+        else:
+            print("  ℹ️ Running in lightweight serverless mode (Layers 0A, 0B, 1, 2, 5 fully active)")
         
         self.cache = MinHashCache()
         self._seed_cache()
         print("  ✅ Layer 2 MinHash LSH Cache ready")
         
         self.embedder = Embedder()
-        self.labeled_embeddings = self._build_labeled_embeddings()
+        self.labeled_embeddings = self._build_labeled_embeddings() if (self.embedder and self.embedder.model) else []
         print("  ✅ Layer 3 Embedder ready")
         
-        print("\n✨ Kuiper 7-Layer Router Pipeline fully active!\n")
+        print("\n✨ Kuiper Router Pipeline fully active!\n")
 
     def _seed_cache(self):
         for text, label in TRAINING_DATA:
@@ -696,8 +712,10 @@ class KuiperRouter:
         """Dynamic continuous learning from LLM traces"""
         try:
             self.cache.add(query, label_or_answer)
-            vec = self.embedder.embed(query)
-            self.labeled_embeddings.append({"text": query, "label": label_or_answer, "vector": vec})
+            if self.embedder and self.embedder.model:
+                vec = self.embedder.embed(query)
+                if vec is not None:
+                    self.labeled_embeddings.append({"text": query, "label": label_or_answer, "vector": vec})
         except Exception as e:
             print(f"Error adding trace to memory: {e}")
 
@@ -792,46 +810,59 @@ class KuiperRouter:
 
         # ── LAYER 3: Embedder (SentenceTransformer Semantic Similarity) ──
         t0 = time.time()
-        query_vec = self.embedder.embed(query)
-        res3 = self.embedder.find_similar(query_vec, self.labeled_embeddings)
-        latency_3 = round((time.time() - t0) * 1000, 2)
-        if res3 and res3.get("similarity", 0) >= 0.72:
-            steps_executed.append({"layer": "3", "name": "Embedder", "status": "HIT", "latency_ms": latency_3})
-            label = res3["label"]
-            answer = CATEGORY_RESPONSES.get(label, str(label))
-            return {
-                "answer": answer,
-                "handled_by": "embedder",
-                "layer": "3",
-                "layer_name": "Layer 3: Semantic Embedder",
-                "cost_saved": True,
-                "confidence": res3.get("similarity", 0.8),
-                "alpha": current_alpha,
-                "price_tier": alpha_info["tier"],
-                "steps": steps_executed
-            }
-        steps_executed.append({"layer": "3", "name": "Embedder", "status": "SKIP", "latency_ms": latency_3})
+        query_vec = None
+        if self.embedder and self.embedder.model and self.labeled_embeddings:
+            try:
+                query_vec = self.embedder.embed(query)
+                res3 = self.embedder.find_similar(query_vec, self.labeled_embeddings)
+                latency_3 = round((time.time() - t0) * 1000, 2)
+                if res3 and res3.get("similarity", 0) >= 0.72:
+                    steps_executed.append({"layer": "3", "name": "Embedder", "status": "HIT", "latency_ms": latency_3})
+                    label = res3["label"]
+                    answer = CATEGORY_RESPONSES.get(label, str(label))
+                    return {
+                        "answer": answer,
+                        "handled_by": "embedder",
+                        "layer": "3",
+                        "layer_name": "Layer 3: Semantic Embedder",
+                        "cost_saved": True,
+                        "confidence": res3.get("similarity", 0.8),
+                        "alpha": current_alpha,
+                        "price_tier": alpha_info["tier"],
+                        "steps": steps_executed
+                    }
+                steps_executed.append({"layer": "3", "name": "Embedder", "status": "SKIP", "latency_ms": latency_3})
+            except Exception:
+                steps_executed.append({"layer": "3", "name": "Embedder", "status": "SKIP", "latency_ms": 0.1})
+        else:
+            steps_executed.append({"layer": "3", "name": "Embedder", "status": "SKIP", "latency_ms": 0.1})
 
         # ── LAYER 4: Ensemble ML (LogReg + LightGBM + MLP with Dynamic Alpha) ──
         t0 = time.time()
-        res4 = self.ensemble.predict(query_vec, alpha_threshold=current_alpha)
-        latency_4 = round((time.time() - t0) * 1000, 2)
-        if not res4["pass_on"]:
-            steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "HIT", "latency_ms": latency_4})
-            label = res4["label"]
-            answer = CATEGORY_RESPONSES.get(label, f"Classified by Ensemble ML ({label})")
-            return {
-                "answer": answer,
-                "handled_by": "ensemble",
-                "layer": "4",
-                "layer_name": "Layer 4: Ensemble ML (α-Calibrated)",
-                "cost_saved": True,
-                "confidence": res4.get("confidence", 0.75),
-                "alpha": current_alpha,
-                "price_tier": alpha_info["tier"],
-                "steps": steps_executed
-            }
-        steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "SKIP", "latency_ms": latency_4})
+        if self.ensemble and query_vec is not None:
+            try:
+                res4 = self.ensemble.predict(query_vec, alpha_threshold=current_alpha)
+                latency_4 = round((time.time() - t0) * 1000, 2)
+                if not res4["pass_on"]:
+                    steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "HIT", "latency_ms": latency_4})
+                    label = res4["label"]
+                    answer = CATEGORY_RESPONSES.get(label, f"Classified by Ensemble ML ({label})")
+                    return {
+                        "answer": answer,
+                        "handled_by": "ensemble",
+                        "layer": "4",
+                        "layer_name": "Layer 4: Ensemble ML (α-Calibrated)",
+                        "cost_saved": True,
+                        "confidence": res4.get("confidence", 0.75),
+                        "alpha": current_alpha,
+                        "price_tier": alpha_info["tier"],
+                        "steps": steps_executed
+                    }
+                steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "SKIP", "latency_ms": latency_4})
+            except Exception:
+                steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "SKIP", "latency_ms": 0.1})
+        else:
+            steps_executed.append({"layer": "4", "name": "Ensemble ML", "status": "SKIP", "latency_ms": 0.1})
 
         # ── LAYER 5: LLM (Automated Model Selection & Comprehensive Answers) ──
         t0 = time.time()

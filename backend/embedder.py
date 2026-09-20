@@ -1,30 +1,54 @@
-from sentence_transformers import SentenceTransformer
-import numpy as np
+try:
+    from sentence_transformers import SentenceTransformer
+    HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    SentenceTransformer = None
+    HAS_SENTENCE_TRANSFORMERS = False
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
 import json
 import os
 
 # ── MODEL ──────────────────────────────────────────────────────
-# Small, fast, runs locally — no API call needed
 MODEL_NAME    = 'all-MiniLM-L6-v2'
-CACHE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'embedding_cache.json')
+if os.environ.get("VERCEL"):
+    CACHE_FILE = '/tmp/embedding_cache.json'
+else:
+    CACHE_FILE = os.environ.get("CACHE_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'embedding_cache.json')
 
 class Embedder:
     def __init__(self):
-        print("⚙️  Loading embedding model...")
-        self.model  = SentenceTransformer(MODEL_NAME)
-        self.cache  = self._load_cache()
-        print(f"✅ Embedder ready. Cache has {len(self.cache)} entries.\n")
+        self.model = None
+        if HAS_SENTENCE_TRANSFORMERS and SentenceTransformer is not None:
+            try:
+                print("⚙️  Loading embedding model...")
+                self.model = SentenceTransformer(MODEL_NAME)
+                print("✅ Embedder model ready.")
+            except Exception as e:
+                print(f"⚠️ Could not initialize SentenceTransformer: {e}")
+                self.model = None
+        self.cache = self._load_cache()
 
     # ── PERSISTENT CACHE ───────────────────────────────────────
     def _load_cache(self):
         if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'r') as f:
-                return json.load(f)
+            try:
+                with open(CACHE_FILE, 'r') as f:
+                    return json.load(f)
+            except Exception:
+                return {}
         return {}
 
     def _save_cache(self):
-        with open(CACHE_FILE, 'w') as f:
-            json.dump(self.cache, f)
+        try:
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(self.cache, f)
+        except Exception:
+            pass
 
     # ── EMBED ──────────────────────────────────────────────────
     def embed(self, text):
@@ -32,22 +56,30 @@ class Embedder:
         key = text.lower().strip()
 
         if key in self.cache:
-            print(f"  💾 Embedding cache hit: '{text}'")
-            return np.array(self.cache[key])
+            if np is not None:
+                return np.array(self.cache[key])
+            return self.cache[key]
+
+        if not self.model:
+            return None
 
         # Not in cache — compute it
         vector = self.model.encode([text])[0]
         self.cache[key] = vector.tolist()
         self._save_cache()
-        print(f"  🔢 Computed new embedding: '{text}'")
         return vector
 
     # ── SIMILARITY ─────────────────────────────────────────────
     def similarity(self, vec1, vec2):
         """Cosine similarity between two vectors (0 to 1)"""
-        dot    = np.dot(vec1, vec2)
-        norms  = np.linalg.norm(vec1) * np.linalg.norm(vec2)
-        return float(dot / norms) if norms > 0 else 0.0
+        if vec1 is None or vec2 is None or np is None:
+            return 0.0
+        try:
+            dot = np.dot(vec1, vec2)
+            norms = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+            return float(dot / norms) if norms > 0 else 0.0
+        except Exception:
+            return 0.0
 
     # ── FIND MOST SIMILAR ──────────────────────────────────────
     def find_similar(self, query_vec, labeled_embeddings, top_k=1):
