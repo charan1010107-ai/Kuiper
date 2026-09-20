@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.git
+.gitignore
+traces.jsonl
+node_modules
+build
+public
+src
+backend.zip

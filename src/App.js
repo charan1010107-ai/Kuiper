@@ -1,10 +1,30 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
-const DEFAULT_API = process.env.REACT_APP_API_URL || 
-  (typeof window !== "undefined" && window.location.hostname && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" && !window.location.hostname.includes("github.io")
-    ? `http://${window.location.hostname}:8000`
-    : "http://127.0.0.1:8000");
+const getInitialApiUrl = () => {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("tokenwise_api_url");
+    if (saved) return saved;
+  }
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  if (typeof window !== "undefined" && window.location.hostname) {
+    const host = window.location.hostname;
+    if (
+      host !== "localhost" &&
+      host !== "127.0.0.1" &&
+      !host.includes("github.io") &&
+      !host.includes("vercel.app") &&
+      !host.includes("railway.app")
+    ) {
+      return `http://${host}:8000`;
+    }
+  }
+  return "http://127.0.0.1:8000";
+};
+
+const DEFAULT_API = getInitialApiUrl();
 
 const LAYER_INFO = {
   math:       { label: "Math Engine",      color: "#F59E0B", icon: "🧮", layer: "0A", cost: "FREE (~1ms)" },
@@ -431,14 +451,19 @@ export default function App() {
   }, [history]);
 
   const checkHealth = React.useCallback(async () => {
+    if (!apiUrl) {
+      setBackendOnline(false);
+      return;
+    }
+    const cleanUrl = apiUrl.trim().replace(/\/$/, "");
     try {
-      const res = await axios.get(`${apiUrl}/stats`, { timeout: 2000 });
+      const res = await axios.get(`${cleanUrl}/stats`, { timeout: 3500 });
       setStats(res.data);
       setBackendOnline(true);
       return;
     } catch {
-      // Auto fallback probe to alternative local host
-      if (apiUrl.includes("127.0.0.1:8000")) {
+      // Auto fallback probe to alternative local host ONLY when testing locally
+      if (cleanUrl.includes("127.0.0.1:8000")) {
         try {
           const res = await axios.get("http://localhost:8000/stats", { timeout: 1500 });
           setStats(res.data);
@@ -446,7 +471,7 @@ export default function App() {
           setBackendOnline(true);
           return;
         } catch {}
-      } else if (apiUrl.includes("localhost:8000")) {
+      } else if (cleanUrl.includes("localhost:8000")) {
         try {
           const res = await axios.get("http://127.0.0.1:8000/stats", { timeout: 1500 });
           setStats(res.data);
@@ -482,7 +507,8 @@ export default function App() {
 
     try {
       // 1. Try Backend API first
-      const res = await axios.post(`${apiUrl}/query`, {
+      const cleanUrl = apiUrl.trim().replace(/\/$/, "");
+      const res = await axios.post(`${cleanUrl}/query`, {
         query: q,
         provider,
         api_key: apiKey || null,
@@ -819,7 +845,7 @@ export default function App() {
                 color: backendOnline ? "#10B981" : "#F59E0B"
               }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: backendOnline ? "#10B981" : "#F59E0B" }}/>
-              {backendOnline ? (isMobile ? "Live" : "Backend Live (7-Layer)") : (isMobile ? "GH Engine" : "GitHub Pages Engine")} ⚙️
+              {backendOnline ? (isMobile ? "Live" : "Backend Live (7-Layer)") : (isMobile ? "Connect" : "Connect Backend")} ⚙️
             </button>
 
             <button onClick={() => setShowDash(p => !p)}
@@ -854,9 +880,13 @@ export default function App() {
           }}>
             <span style={{ fontSize: 11, color: "#ffffff80" }}>🔗 Backend API:</span>
             <input value={apiUrl} onChange={e => setApiUrl(e.target.value)}
-              placeholder="http://127.0.0.1:8000"
-              style={{ padding: "6px 10px", borderRadius: 8, background: "#ffffff15", border: "1px solid #ffffff30", color: "#ffffff", fontSize: 12, width: isMobile ? "100%" : 260, maxWidth: "100%" }}/>
-            <button onClick={() => { checkHealth(); setShowApiModal(false); }}
+              placeholder="https://your-backend.up.railway.app or http://127.0.0.1:8000"
+              style={{ padding: "6px 10px", borderRadius: 8, background: "#ffffff15", border: "1px solid #ffffff30", color: "#ffffff", fontSize: 12, width: isMobile ? "100%" : 320, maxWidth: "100%" }}/>
+            <button onClick={() => { 
+                try { if (apiUrl) localStorage.setItem("tokenwise_api_url", apiUrl.trim()); } catch {}
+                checkHealth(); 
+                setShowApiModal(false); 
+              }}
               className="hover-scale"
               style={{ padding: "6px 12px", borderRadius: 8, background: "#10B981", border: "none", color: "#ffffff", fontSize: 11, fontWeight: 700, cursor: "pointer", width: isMobile ? "100%" : "auto" }}>
               Save & Connect

@@ -6,7 +6,7 @@ import os
 # ── MODEL ──────────────────────────────────────────────────────
 # Small, fast, runs locally — no API call needed
 MODEL_NAME    = 'all-MiniLM-L6-v2'
-CACHE_FILE    = 'embedding_cache.json'
+CACHE_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'embedding_cache.json')
 
 class Embedder:
     def __init__(self):
