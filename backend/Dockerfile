@@ -2,25 +2,27 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies
-# libgomp1 is strictly required by LightGBM
+# Install system dependencies (libgomp1 for LightGBM, build tools, curl)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install lightweight CPU-only PyTorch first (~180MB vs 2.5GB CUDA)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# Upgrade pip and core build tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Install PyTorch CPU with extra-index-url so all PyPI sub-dependencies resolve
+RUN pip install --no-cache-dir torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install application dependencies
-COPY requirements.txt .
+COPY backend/requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend application source
-COPY . .
+# Copy backend application source code
+COPY backend/ .
 
-# Railway provides PORT dynamically at runtime
+# Render and cloud platforms inject PORT dynamically
 ENV PORT=8000
 EXPOSE 8000
 
